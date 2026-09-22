@@ -26,7 +26,6 @@ def main():
         except KeyboardInterrupt:
             print("\naichat> : Bye!")
             sys.exit()
-        # print(f"{nickname} > : {prompt}")
         logging.info("prompt=%s", prompt)
         
 
