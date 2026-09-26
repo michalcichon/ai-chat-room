@@ -1,5 +1,7 @@
+from datetime import timezone
+
 import pytest
-from aichat.domain.entities import User, Channel
+from aichat.domain.entities import User, Channel, Message
 
 
 def test_user_created_with_valid_nickname():
@@ -52,3 +54,36 @@ def test_remove_member_that_never_joined_does_not_raise():
     channel = Channel(name="general")
     user = User(nickname="alice")
     channel.remove_member(user)
+
+
+def test_message_created_with_valid_data():
+    user = User(nickname="alice")
+    message = Message(author=user, channel="general", text="hello")
+    assert message.text == "hello"
+    assert message.channel == "general"
+    assert message.author == user
+
+
+def test_message_raises_on_empty_text():
+    user = User(nickname="alice")
+    with pytest.raises(ValueError):
+        Message(author=user, channel="general", text="   ")
+
+
+def test_message_raises_on_empty_channel():
+    user = User(nickname="alice")
+    with pytest.raises(ValueError):
+        Message(author=user, channel="", text="hello")
+
+
+def test_message_has_utc_timestamp_by_default():
+    user = User(nickname="alice")
+    message = Message(author=user, channel="general", text="hello")
+    assert message.timestamp.tzinfo == timezone.utc
+
+
+def test_message_is_immutable():
+    user = User(nickname="alice")
+    message = Message(author=user, channel="general", text="hello")
+    with pytest.raises(AttributeError):
+        message.text = "changed"

@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-import datetime
+from datetime import datetime, timezone
 
 
 @dataclass(frozen=True)
@@ -16,7 +16,7 @@ class Message:
     author: User
     channel: str
     text: str
-    timestamp: datetime = field(default_factory=lambda: datetime.now(datetime.timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def __post_init__(self):
         if not self.text.strip():
