@@ -11,6 +11,7 @@ Available commands:
 /quit             - exit the chat
 """
 
+ERASE_PREVIOUS_LINE = "\x1b[1A\x1b[2K"
 
 class TerminalClient:
     def __init__(self, room: ChatRoom):
@@ -18,13 +19,19 @@ class TerminalClient:
         self._user = None
         self._active_channel = None
 
+    @staticmethod
+    def _erase_last_terminal_line():
+        if sys.stdout.isatty():
+            sys.stdout.write(ERASE_PREVIOUS_LINE)
+            sys.stdout.flush()
+            
     def run(self):
         print("Welcome to aiChatRoom!\n")
         self._connect_user()
 
         while True:
             try:
-                prompt = input(f"{self._user.nickname} [{self._active_channel}] > : ")
+                prompt = input(f"[#{self._active_channel}] {self._user.nickname}: ")
             except KeyboardInterrupt:
                 self._quit()
             else:
@@ -62,6 +69,7 @@ class TerminalClient:
             self._post_message(prompt)
 
     def _post_message(self, text: str):
+        self._erase_last_terminal_line()
         try:
             self._room.post_message(self._user, self._active_channel, text)
         except UserNotInChannelError as error:
