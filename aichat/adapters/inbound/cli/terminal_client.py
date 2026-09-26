@@ -1,6 +1,7 @@
 import sys
 
-from aichat.domain.services import ChatRoom, UserNotInChannelError
+from aichat.domain.services import UserNotInChannelError
+from aichat.ports.inbound import ChatUseCase
 
 AVAILABLE_COMMANDS = """
 Available commands:
@@ -14,7 +15,7 @@ Available commands:
 ERASE_PREVIOUS_LINE = "\x1b[1A\x1b[2K"
 
 class TerminalClient:
-    def __init__(self, room: ChatRoom):
+    def __init__(self, room: ChatUseCase):
         self._room = room
         self._user = None
         self._active_channel = None
@@ -47,7 +48,7 @@ class TerminalClient:
             try:
                 nickname = input("Nickname: ")
                 self._user = self._room.connect(nickname)
-                self._active_channel = ChatRoom.DEFAULT_CHANNEL
+                self._active_channel = self._room.default_channel
                 break
             except ValueError as error:
                 print(f"Error: {error}...")

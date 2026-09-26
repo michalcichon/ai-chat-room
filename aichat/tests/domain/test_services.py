@@ -116,3 +116,7 @@ def test_agent_and_human_nickname_uniqueness_still_applies(room):
     assert first.nickname == "assistant"
     assert second.nickname == "assistant2"
     assert second.is_agent is True
+
+
+def test_default_channel_property(room):
+    assert room.default_channel == ChatRoom.DEFAULT_CHANNEL
