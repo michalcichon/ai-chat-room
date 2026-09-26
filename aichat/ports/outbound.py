@@ -1,0 +1,9 @@
+from typing import Protocol
+from aichat.domain.entities import User, Message
+
+
+class Notifier(Protocol):
+    def user_joined(self, user: User, channel_name: str) -> None: ...
+    def user_left(self, user: User, channel_name: str) -> None: ...
+    def message_posted(self, message: Message) -> None: ...
+    
