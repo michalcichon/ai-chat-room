@@ -17,9 +17,9 @@ class ChatRoom:
         self._nicknames: set[str] = set()
         self._notifier = notifier
 
-    def connect(self, requested_nickname: str) -> User:
+    def connect(self, requested_nickname: str, is_agent: bool = False) -> User:
         nickname = self._resolve_unique_nickname(requested_nickname)
-        user = User(nickname=nickname)
+        user = User(nickname=nickname, is_agent=is_agent)
         self._nicknames.add(nickname)
         self.join(user, self.DEFAULT_CHANNEL)
         return user

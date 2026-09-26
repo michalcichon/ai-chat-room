@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 @dataclass(frozen=True)
 class User:
     nickname: str
+    is_agent: bool = False
 
     def __post_init__(self):
         if not self.nickname.strip():

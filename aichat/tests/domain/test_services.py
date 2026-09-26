@@ -98,3 +98,21 @@ def test_disconnect_frees_nickname_for_reuse(room):
     room.disconnect(user)
     new_user = room.connect("alice")
     assert new_user.nickname == "alice"
+
+
+def test_connect_creates_human_user_by_default(room):
+    user = room.connect("alice")
+    assert user.is_agent is False
+
+
+def test_connect_can_create_agent_user(room):
+    user = room.connect("bot-1", is_agent=True)
+    assert user.is_agent is True
+
+
+def test_agent_and_human_nickname_uniqueness_still_applies(room):
+    first = room.connect("assistant")
+    second = room.connect("assistant", is_agent=True)
+    assert first.nickname == "assistant"
+    assert second.nickname == "assistant2"
+    assert second.is_agent is True

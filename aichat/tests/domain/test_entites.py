@@ -30,6 +30,16 @@ def test_user_is_hashable():
     assert hash(user) is not None
 
 
+def test_user_defaults_to_not_agent():
+    user = User(nickname="alice")
+    assert user.is_agent is False
+
+
+def test_user_can_be_marked_as_agent():
+    user = User(nickname="bot-1", is_agent=True)
+    assert user.is_agent is True
+    
+
 def test_channel_starts_empty():
     channel = Channel(name="general")
     assert channel.members == set()
