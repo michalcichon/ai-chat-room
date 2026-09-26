@@ -21,6 +21,11 @@ class TerminalClient:
 
     @staticmethod
     def _erase_last_terminal_line():
+        # Safe only because this client is single-threaded and synchronous:
+        # input() blocks everything else, so no other output can land between
+        # the terminal's echo and this erase. This will need to change (e.g.
+        # disable terminal echo via termios, or switch to prompt_toolkit) once
+        # a background thread starts pushing server messages concurrently.
         if sys.stdout.isatty():
             sys.stdout.write(ERASE_PREVIOUS_LINE)
             sys.stdout.flush()
