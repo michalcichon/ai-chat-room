@@ -23,7 +23,6 @@ class ChatRoom:
         return user
 
     def disconnect(self, user: User) -> None:
-        """Zwalnia nickname, żeby mógł być użyty ponownie."""
         self._nicknames.discard(user.nickname)
         for channel in self._channels.values():
             channel.remove_member(user)
