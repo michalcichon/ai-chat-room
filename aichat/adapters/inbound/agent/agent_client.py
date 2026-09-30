@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import re
 import time
@@ -11,6 +12,8 @@ MODEL = "claude-haiku-4-5"
 HISTORY_LIMIT = 20
 NO_REPLY_SENTINEL = "NO_REPLY"
 SPONTANEOUS_REPLY_COOLDOWN_SECONDS = 30
+
+logger = logging.getLogger(__name__)
 
 
 class AgentClient:
@@ -34,13 +37,17 @@ class AgentClient:
         self._last_spontaneous_reply_at: float = 0.0
 
     async def run(self):
-        async with websockets.connect(self._uri) as websocket:
-            self._websocket = websocket
-            await self._connect()
-            mode = "mentions-only" if self._mentions_only else "spontaneous + mentions"
-            print(f"[agent:{self._nickname}] connected, listening on #{self._active_channel} ({mode})")
-            async for raw in websocket:
-                await self._handle_server_event(json.loads(raw))
+        try:
+            async with websockets.connect(self._uri) as websocket:
+                self._websocket = websocket
+                await self._connect()
+                mode = "mentions-only" if self._mentions_only else "spontaneous + mentions"
+                logger.info("connected as %s, listening on #%s (%s)",
+                            self._nickname, self._active_channel, mode)
+                async for raw in websocket:
+                    await self._handle_server_event(json.loads(raw))
+        except OSError:
+            logger.error("could not connect to server at %s", self._uri)
 
     async def _connect(self):
         await self._websocket.send(json.dumps({
@@ -69,18 +76,27 @@ class AgentClient:
 
         if not forced:
             if self._mentions_only:
+                logger.debug("message from %s skipped (mentions-only mode, not mentioned)",
+                             data["from"])
                 return
             if self._spontaneous_reply_on_cooldown():
+                remaining = SPONTANEOUS_REPLY_COOLDOWN_SECONDS - (time.monotonic() - self._last_spontaneous_reply_at)
+                logger.debug("message from %s skipped (cooldown, %.0fs remaining)",
+                             data["from"], remaining)
                 return
 
         try:
             reply_text = await self._generate_reply(forced=forced)
-        except Exception as error:
-            print(f"[agent:{self._nickname}] failed to generate reply: {error}")
+        except Exception:
+            logger.exception("failed to generate reply")
             return
 
         if reply_text is None:
+            logger.debug("decided not to reply to %s", data["from"])
             return
+
+        logger.debug("decided to reply to %s (%s)",
+                      data["from"], "mentioned" if forced else "spontaneous")
 
         if not forced:
             self._last_spontaneous_reply_at = time.monotonic()
@@ -120,6 +136,9 @@ class AgentClient:
 
 
 async def main():
+    log_level = os.environ.get("AICHAT_AGENT_LOG_LEVEL", "INFO").upper()
+    logging.basicConfig(level=log_level, format="%(asctime)s %(levelname)s %(message)s")
+
     uri = os.environ.get("AICHAT_SERVER_URI", "ws://localhost:8765")
     nickname = os.environ.get("AICHAT_AGENT_NICKNAME", "claude")
     mentions_only = os.environ.get("AICHAT_AGENT_MENTIONS_ONLY", "false").lower() == "true"
