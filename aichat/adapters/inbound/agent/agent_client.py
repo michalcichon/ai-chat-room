@@ -17,9 +17,11 @@ logger = logging.getLogger(__name__)
 
 
 class AgentClient:
-    """AI agent adapter: connects like a normal client. Always replies when
-    directly mentioned (@nickname); optionally also decides for itself
-    whether to chime in spontaneously, throttled to avoid spamming."""
+    """AI agent adapter: connects like a normal client. Always replies
+    immediately when directly mentioned (@nickname). Otherwise, every
+    SPONTANEOUS_REPLY_COOLDOWN_SECONDS it checks whether anything happened
+    on the channel since its last check, and if so, decides once whether
+    to chime in."""
 
     def __init__(
         self,
@@ -34,7 +36,7 @@ class AgentClient:
         self._websocket = None
         self._anthropic = Anthropic()
         self._history: list[dict] = []
-        self._last_spontaneous_reply_at: float = 0.0
+        self._unseen_since_last_check = False
 
     async def run(self):
         if not os.environ.get("ANTHROPIC_API_KEY"):
@@ -43,6 +45,7 @@ class AgentClient:
                 "and run: export ANTHROPIC_API_KEY=sk-ant-..."
             )
             return
+
         try:
             async with websockets.connect(self._uri) as websocket:
                 self._websocket = websocket
@@ -50,8 +53,17 @@ class AgentClient:
                 mode = "mentions-only" if self._mentions_only else "spontaneous + mentions"
                 logger.info("connected as %s, listening on #%s (%s)",
                             self._nickname, self._active_channel, mode)
-                async for raw in websocket:
-                    await self._handle_server_event(json.loads(raw))
+
+                cooldown_task = None
+                if not self._mentions_only:
+                    cooldown_task = asyncio.create_task(self._cooldown_loop())
+
+                try:
+                    async for raw in websocket:
+                        await self._handle_server_event(json.loads(raw))
+                finally:
+                    if cooldown_task is not None:
+                        cooldown_task.cancel()
         except OSError:
             logger.error("could not connect to server at %s", self._uri)
 
@@ -68,9 +80,6 @@ class AgentClient:
     def _is_mentioned(self, text: str) -> bool:
         return re.search(rf"@{re.escape(self._nickname)}\b", text) is not None
 
-    def _spontaneous_reply_on_cooldown(self) -> bool:
-        return (time.monotonic() - self._last_spontaneous_reply_at) < SPONTANEOUS_REPLY_COOLDOWN_SECONDS
-
     async def _handle_server_event(self, data: dict):
         if data.get("type") != "message" or data["from"] == self._nickname:
             return
@@ -78,19 +87,35 @@ class AgentClient:
         self._history.append({"from": data["from"], "text": data["text"]})
         self._history = self._history[-HISTORY_LIMIT:]
 
-        forced = self._is_mentioned(data["text"])
+        if self._is_mentioned(data["text"]):
+            await self._reply_now(data["channel"], forced=True)
+            return
 
-        if not forced:
-            if self._mentions_only:
-                logger.debug("message from %s skipped (mentions-only mode, not mentioned)",
-                             data["from"])
-                return
-            if self._spontaneous_reply_on_cooldown():
-                remaining = SPONTANEOUS_REPLY_COOLDOWN_SECONDS - (time.monotonic() - self._last_spontaneous_reply_at)
-                logger.debug("message from %s skipped (cooldown, %.0fs remaining)",
-                             data["from"], remaining)
-                return
+        if self._mentions_only:
+            logger.debug("message from %s skipped (mentions-only mode, not mentioned)",
+                         data["from"])
+            return
 
+        self._unseen_since_last_check = True
+        logger.debug("message from %s queued for consideration at next cooldown check",
+                     data["from"])
+
+    async def _cooldown_loop(self):
+        """Wakes up every cooldown interval and decides at most once per
+        interval whether to chime in, based on messages received since the
+        last check. Makes zero API calls when nothing new happened."""
+        while True:
+            await asyncio.sleep(SPONTANEOUS_REPLY_COOLDOWN_SECONDS)
+
+            if not self._unseen_since_last_check:
+                logger.debug("cooldown elapsed, nothing new since last check, skipping")
+                continue
+
+            self._unseen_since_last_check = False
+            channel = self._active_channel
+            await self._reply_now(channel, forced=False)
+
+    async def _reply_now(self, channel: str, forced: bool):
         try:
             reply_text = await self._generate_reply(forced=forced)
         except Exception:
@@ -98,17 +123,12 @@ class AgentClient:
             return
 
         if reply_text is None:
-            logger.debug("decided not to reply to %s", data["from"])
+            logger.debug("decided not to reply (%s)", "mentioned" if forced else "spontaneous check")
             return
 
-        logger.debug("decided to reply to %s (%s)",
-                      data["from"], "mentioned" if forced else "spontaneous")
-
-        if not forced:
-            self._last_spontaneous_reply_at = time.monotonic()
-
+        logger.debug("decided to reply (%s)", "mentioned" if forced else "spontaneous check")
         await self._websocket.send(json.dumps({
-            "type": "message", "channel": data["channel"], "text": reply_text,
+            "type": "message", "channel": channel, "text": reply_text,
         }))
 
     async def _generate_reply(self, forced: bool) -> str | None:
