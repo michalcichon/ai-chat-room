@@ -1,7 +1,8 @@
+import asyncio
+import json
 import sys
 
-from aichat.domain.services import UserNotInChannelError
-from aichat.ports.inbound import ChatUseCase
+import websockets
 
 AVAILABLE_COMMANDS = """
 Available commands:
@@ -14,74 +15,117 @@ Available commands:
 
 ERASE_PREVIOUS_LINE = "\x1b[1A\x1b[2K"
 
+
 class TerminalClient:
-    def __init__(self, room: ChatUseCase):
-        self._room = room
-        self._user = None
+    def __init__(self, uri: str):
+        self._uri = uri
+        self._websocket = None
+        self._nickname = None
         self._active_channel = None
+        self._list_response: asyncio.Future | None = None
 
     @staticmethod
     def _erase_last_terminal_line():
-        # Safe only because this client is single-threaded and synchronous:
-        # input() blocks everything else, so no other output can land between
-        # the terminal's echo and this erase. This will need to change (e.g.
-        # disable terminal echo via termios, or switch to prompt_toolkit) once
-        # a background thread starts pushing server messages concurrently.
         if sys.stdout.isatty():
             sys.stdout.write(ERASE_PREVIOUS_LINE)
             sys.stdout.flush()
-            
-    def run(self):
+
+    async def run(self):
         print("Welcome to aiChatRoom!\n")
-        self._connect_user()
+        async with websockets.connect(self._uri) as websocket:
+            self._websocket = websocket
+            await self._connect_user()
 
-        while True:
+            listener = asyncio.create_task(self._listen())
             try:
-                prompt = input(f"[#{self._active_channel}] {self._user.nickname}: ")
-            except KeyboardInterrupt:
-                self._quit()
-            else:
-                self._handle_input(prompt)
+                await self._input_loop()
+            finally:
+                listener.cancel()
 
-    def _connect_user(self):
+    async def _connect_user(self):
         while True:
-            try:
-                nickname = input("Nickname: ")
-                self._user = self._room.connect(nickname)
-                self._active_channel = self._room.default_channel
-                break
-            except ValueError as error:
-                print(f"Error: {error}...")
-            except KeyboardInterrupt:
-                self._quit()
+            nickname = await asyncio.to_thread(input, "Nickname: ")
+            await self._websocket.send(json.dumps({"type": "connect", "nickname": nickname}))
+            reply = json.loads(await self._websocket.recv())
+            if reply["type"] == "error":
+                print(f"Error: {reply['message']}")
+                continue
+            self._nickname = reply["nickname"]
+            self._active_channel = reply["default_channel"]
+            break
 
-    def _handle_input(self, prompt: str):
+    async def _input_loop(self):
+        while True:
+            prompt_text = f"[#{self._active_channel}] {self._nickname}: "
+            try:
+                prompt = await asyncio.to_thread(input, prompt_text)
+            except (KeyboardInterrupt, EOFError):
+                await self._quit()
+                return
+            await self._handle_input(prompt)
+
+    async def _listen(self):
+        try:
+            async for raw in self._websocket:
+                await self._handle_server_event(json.loads(raw))
+        except websockets.ConnectionClosed:
+            pass
+
+    async def _handle_server_event(self, data: dict):
+        if data.get("type") == "channel_list":
+            if self._list_response is not None and not self._list_response.done():
+                self._list_response.set_result(data["channels"])
+            return
+
+        # NOTE: any incoming event (including the echo of our own posted
+        # message) interrupts whatever the user is mid-typing at the prompt.
+        # We erase the prompt line and reprint it, but partially-typed text
+        # at that moment is lost. This is the exact trade-off the original
+        # synchronous code's comment warned about — a proper fix needs
+        # termios (raw terminal control) or a library like prompt_toolkit.
+        self._erase_last_terminal_line()
+
+        if data["type"] == "user_joined":
+            print(f"* {data['nickname']} joined #{data['channel']}")
+        elif data["type"] == "user_left":
+            print(f"* {data['nickname']} left #{data['channel']}")
+        elif data["type"] == "message":
+            print(f"[#{data['channel']}] {data['from']}: {data['text']}")
+        elif data["type"] == "error":
+            print(f"Error: {data['message']}")
+
+        print(f"[#{self._active_channel}] {self._nickname}: ", end="", flush=True)
+
+    async def _handle_input(self, prompt: str):
         if prompt == "/quit":
-            self._quit()
+            await self._quit()
         elif prompt == "/help":
             print(AVAILABLE_COMMANDS)
         elif prompt == "/list":
-            channels = self._room.list_channels()
-            print("Channels: " + ", ".join(channels))
+            await self._list_channels()
         elif prompt.startswith("/join "):
             channel = prompt.removeprefix("/join ")
-            self._room.join(self._user, channel)
+            await self._websocket.send(json.dumps({"type": "join", "channel": channel}))
             self._active_channel = channel
         elif prompt == "/leave":
-            self._room.leave(self._user, self._active_channel)
+            await self._websocket.send(json.dumps({"type": "leave", "channel": self._active_channel}))
         elif prompt.strip() == "":
             pass
         else:
-            self._post_message(prompt)
+            await self._post_message(prompt)
 
-    def _post_message(self, text: str):
-        self._erase_last_terminal_line()
-        try:
-            self._room.post_message(self._user, self._active_channel, text)
-        except UserNotInChannelError as error:
-            print(f"Error: {error}")
+    async def _list_channels(self):
+        self._list_response = asyncio.get_event_loop().create_future()
+        await self._websocket.send(json.dumps({"type": "list"}))
+        channels = await self._list_response
+        print("Channels: " + ", ".join(channels))
 
-    def _quit(self):
+    async def _post_message(self, text: str):
+        await self._websocket.send(json.dumps({
+            "type": "message", "channel": self._active_channel, "text": text,
+        }))
+
+    async def _quit(self):
         print("\naichat> : Bye!")
-        self._room.disconnect(self._user)
+        await self._websocket.close()
         sys.exit()

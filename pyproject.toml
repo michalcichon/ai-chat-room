@@ -2,7 +2,9 @@
 name = "aichat"
 version = "0.1.0"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "websockets>=17.1",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -18,3 +20,6 @@ testpaths = ["tests"]
 dev = [
     "pytest>=9.1.1",
 ]
+
+[project.scripts]
+aichat-server = "aichat.adapters.inbound.network.server:run"

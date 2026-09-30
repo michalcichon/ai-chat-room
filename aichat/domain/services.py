@@ -30,15 +30,15 @@ class ChatRoom:
 
     def disconnect(self, user: User) -> None:
         self._nicknames.discard(user.nickname)
-        for channel_name, channel in self._channels.items():
+        for channel in self._channels.values():
             if channel.has_member(user):
                 channel.remove_member(user)
-                self._notifier.user_left(user, channel_name)
+                self._notifier.user_left(user, channel)
 
     def join(self, user: User, channel_name: str) -> Channel:
         channel = self._channels.setdefault(channel_name, Channel(name=channel_name))
         channel.add_member(user)
-        self._notifier.user_joined(user, channel_name)
+        self._notifier.user_joined(user, channel)
         return channel
 
     def leave(self, user: User, channel_name: str) -> None:
@@ -46,7 +46,7 @@ class ChatRoom:
         if channel is None:
             return
         channel.remove_member(user)
-        self._notifier.user_left(user, channel_name)
+        self._notifier.user_left(user, channel)
 
     def post_message(self, user: User, channel_name: str, text: str) -> Message:
         channel = self._channels.get(channel_name)
@@ -58,7 +58,7 @@ class ChatRoom:
             raise UserNotInChannelError(f"You are not in #{channel_name}")
 
         message = Message(author=user, channel=channel_name, text=text)
-        self._notifier.message_posted(message)
+        self._notifier.message_posted(message, channel)
         return message
 
     def list_channels(self) -> list[str]:

@@ -1,13 +1,13 @@
-from aichat.domain.services import ChatRoom
-from aichat.adapters.outbound.console_notifier import ConsoleNotifier
+import asyncio
+
 from aichat.adapters.inbound.cli.terminal_client import TerminalClient
+
+DEFAULT_SERVER_URI = "ws://localhost:8765"
 
 
 def main():
-    notifier = ConsoleNotifier()
-    room = ChatRoom(notifier)
-    client = TerminalClient(room)
-    client.run()
+    client = TerminalClient(DEFAULT_SERVER_URI)
+    asyncio.run(client.run())
 
 
 if __name__ == "__main__":
