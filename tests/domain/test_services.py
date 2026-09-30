@@ -11,13 +11,13 @@ class FakeNotifier(Notifier):
         self.left = []
         self.messages = []
 
-    def user_joined(self, user, channel_name):
-        self.joined.append((user, channel_name))
+    def user_joined(self, user, channel):
+        self.joined.append((user, channel.name))
 
-    def user_left(self, user, channel_name):
-        self.left.append((user, channel_name))
+    def user_left(self, user, channel):
+        self.left.append((user, channel.name))
 
-    def message_posted(self, message):
+    def message_posted(self, message, channel):
         self.messages.append(message)
 
 
