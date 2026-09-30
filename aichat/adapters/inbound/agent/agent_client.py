@@ -37,6 +37,12 @@ class AgentClient:
         self._last_spontaneous_reply_at: float = 0.0
 
     async def run(self):
+        if not os.environ.get("ANTHROPIC_API_KEY"):
+            logger.error(
+                "ANTHROPIC_API_KEY is not set. Get a key from console.anthropic.com "
+                "and run: export ANTHROPIC_API_KEY=sk-ant-..."
+            )
+            return
         try:
             async with websockets.connect(self._uri) as websocket:
                 self._websocket = websocket
