@@ -78,7 +78,8 @@ class TerminalClient:
         elif data["type"] == "user_left":
             print(f"* {data['nickname']} left #{data['channel']}")
         elif data["type"] == "message":
-            print(f"[#{data['channel']}] {data['from']}: {data['text']}")
+            if data["from"] != self._nickname:
+                print(f"[#{data['channel']}] {data['from']}: {data['text']}")
         elif data["type"] == "error":
             print(f"Error: {data['message']}")
 
