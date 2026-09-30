@@ -24,3 +24,4 @@ dev = [
 
 [project.scripts]
 aichat-server = "aichat.adapters.inbound.network.server:run"
+aichat-client = "aichat.__main__:main"
