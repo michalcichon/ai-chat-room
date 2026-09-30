@@ -1,0 +1,5 @@
+websockets
+anthropic
+python-dotenv
+prompt_toolkit
+pytest
