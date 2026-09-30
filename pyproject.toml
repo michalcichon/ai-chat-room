@@ -5,6 +5,7 @@ requires-python = ">=3.11"
 dependencies = [
     "anthropic>=1.10.0",
     "prompt-toolkit>=3.0.53",
+    "python-dotenv>=1.2.3",
     "websockets>=17.1",
 ]
 

@@ -7,6 +7,7 @@ import websockets
 
 from aichat.domain.services import ChatRoom, UserNotInChannelError
 from aichat.adapters.outbound.websocket_notifier import WebSocketNotifier
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,7 @@ async def handler(websocket) -> None:
 
 
 async def main(host: str = "localhost", port: int = 8765) -> None:
+    load_dotenv()
     log_level = os.environ.get("AICHAT_SERVER_LOG_LEVEL", "INFO").upper()
     logging.basicConfig(level=log_level, format="%(asctime)s %(levelname)s %(message)s")
 

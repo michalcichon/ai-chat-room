@@ -7,6 +7,7 @@ import time
 
 import websockets
 from anthropic import Anthropic
+from dotenv import load_dotenv
 
 MODEL = "claude-haiku-4-5"
 HISTORY_LIMIT = 20
@@ -162,6 +163,7 @@ class AgentClient:
 
 
 async def main():
+    load_dotenv()
     log_level = os.environ.get("AICHAT_AGENT_LOG_LEVEL", "INFO").upper()
     logging.basicConfig(level=log_level, format="%(asctime)s %(levelname)s %(message)s")
 
