@@ -27,16 +27,20 @@ class TerminalClient:
 
     async def run(self):
         print("Welcome to aiChatRoom!\n")
-        async with websockets.connect(self._uri) as websocket:
-            self._websocket = websocket
-            with patch_stdout():
-                await self._connect_user()
+        try:
+            async with websockets.connect(self._uri) as websocket:
+                self._websocket = websocket
+                with patch_stdout():
+                    await self._connect_user()
 
-                listener = asyncio.create_task(self._listen())
-                try:
-                    await self._input_loop()
-                finally:
-                    listener.cancel()
+                    listener = asyncio.create_task(self._listen())
+                    try:
+                        await self._input_loop()
+                    finally:
+                        listener.cancel()
+        except OSError:
+            print(f"Could not connect to the server at {self._uri}.")
+            print("Is the server running? Try: uv run aichat-server")
 
     async def _connect_user(self):
         while True:
