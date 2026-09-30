@@ -3,6 +3,8 @@ import json
 import sys
 
 import websockets
+from prompt_toolkit import PromptSession
+from prompt_toolkit.patch_stdout import patch_stdout
 
 AVAILABLE_COMMANDS = """
 Available commands:
@@ -13,8 +15,6 @@ Available commands:
 /quit             - exit the chat
 """
 
-ERASE_PREVIOUS_LINE = "\x1b[1A\x1b[2K"
-
 
 class TerminalClient:
     def __init__(self, uri: str):
@@ -23,28 +23,24 @@ class TerminalClient:
         self._nickname = None
         self._active_channel = None
         self._list_response: asyncio.Future | None = None
-
-    @staticmethod
-    def _erase_last_terminal_line():
-        if sys.stdout.isatty():
-            sys.stdout.write(ERASE_PREVIOUS_LINE)
-            sys.stdout.flush()
+        self._session = PromptSession()
 
     async def run(self):
         print("Welcome to aiChatRoom!\n")
         async with websockets.connect(self._uri) as websocket:
             self._websocket = websocket
-            await self._connect_user()
+            with patch_stdout():
+                await self._connect_user()
 
-            listener = asyncio.create_task(self._listen())
-            try:
-                await self._input_loop()
-            finally:
-                listener.cancel()
+                listener = asyncio.create_task(self._listen())
+                try:
+                    await self._input_loop()
+                finally:
+                    listener.cancel()
 
     async def _connect_user(self):
         while True:
-            nickname = await asyncio.to_thread(input, "Nickname: ")
+            nickname = await self._session.prompt_async("Nickname: ")
             await self._websocket.send(json.dumps({"type": "connect", "nickname": nickname}))
             reply = json.loads(await self._websocket.recv())
             if reply["type"] == "error":
@@ -58,7 +54,7 @@ class TerminalClient:
         while True:
             prompt_text = f"[#{self._active_channel}] {self._nickname}: "
             try:
-                prompt = await asyncio.to_thread(input, prompt_text)
+                prompt = await self._session.prompt_async(prompt_text)
             except (KeyboardInterrupt, EOFError):
                 await self._quit()
                 return
@@ -77,14 +73,6 @@ class TerminalClient:
                 self._list_response.set_result(data["channels"])
             return
 
-        # NOTE: any incoming event (including the echo of our own posted
-        # message) interrupts whatever the user is mid-typing at the prompt.
-        # We erase the prompt line and reprint it, but partially-typed text
-        # at that moment is lost. This is the exact trade-off the original
-        # synchronous code's comment warned about — a proper fix needs
-        # termios (raw terminal control) or a library like prompt_toolkit.
-        self._erase_last_terminal_line()
-
         if data["type"] == "user_joined":
             print(f"* {data['nickname']} joined #{data['channel']}")
         elif data["type"] == "user_left":
@@ -93,8 +81,6 @@ class TerminalClient:
             print(f"[#{data['channel']}] {data['from']}: {data['text']}")
         elif data["type"] == "error":
             print(f"Error: {data['message']}")
-
-        print(f"[#{self._active_channel}] {self._nickname}: ", end="", flush=True)
 
     async def _handle_input(self, prompt: str):
         if prompt == "/quit":
