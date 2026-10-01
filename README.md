@@ -40,56 +40,83 @@ aichat/
 
 ### How it fits together at runtime
 
-Three separate processes (server, terminal client, agent client) talk over one JSON-over-WebSocket protocol. Only the server process touches the domain:
+Three separate processes (server, terminal client, agent client) talk over one JSON-over-WebSocket protocol on `ws://localhost:8765`. Clients send requests up into the server; domain events come back down through the notifier. Only the server process touches the domain:
 
 ```mermaid
+%%{init: {
+  "theme": "base",
+  "themeVariables": {
+    "background": "#ffffff",
+    "primaryColor": "#ffffff",
+    "primaryTextColor": "#1f2328",
+    "primaryBorderColor": "#57606a",
+    "secondaryColor": "#ffffff",
+    "tertiaryColor": "#ffffff",
+    "mainBkg": "#ffffff",
+    "textColor": "#1f2328",
+    "lineColor": "#57606a",
+    "edgeLabelBackground": "#ffffff",
+    "clusterBkg": "#ffffff",
+    "clusterBorder": "#8c959f",
+    "titleColor": "#1f2328",
+    "nodeTextColor": "#1f2328"
+  }
+}}%%
 flowchart LR
-    subgraph clients["Client processes"]
-        direction TB
-        TC["TerminalClient<br/><i>adapters/inbound/cli</i><br/>prompt_toolkit"]
-        AC["AgentClient<br/><i>adapters/inbound/agent</i>"]
-    end
+    subgraph canvas[" "]
 
-    API(["Claude API<br/><i>anthropic</i>"])
-    AC <-->|"mention → always reply<br/>cooldown tick → maybe reply"| API
-
-    subgraph server["Server process — aichat-server"]
-        direction TB
-
-        WS["WebSocket server (handler)<br/><i>adapters/inbound/network</i>"]
-
-        subgraph core["Core (no I/O knowledge)"]
+        subgraph clients["Client processes"]
             direction TB
-            IN{{"ChatUseCase<br/><i>inbound port</i>"}}
-            CR["ChatRoom<br/><i>domain/services</i>"]
-            ENT["User · Channel · Message<br/><i>domain/entities</i>"]
-            OUT{{"Notifier<br/><i>outbound port</i>"}}
-            IN -.->|implemented by| CR
-            CR --> ENT
-            CR -->|emits events| OUT
+            TC["TerminalClient<br/><i>adapters/inbound/cli</i><br/>prompt_toolkit"]
+            AC["AgentClient<br/><i>adapters/inbound/agent</i>"]
         end
 
-        WSN["WebSocketNotifier<br/><i>adapters/outbound</i>"]
-        CN["ConsoleNotifier<br/><i>adapters/outbound</i>"]
+        API(["Claude API<br/><i>anthropic</i>"])
+        AC <-->|"mention → always reply<br/>cooldown tick → maybe reply"| API
 
-        WS -->|"connect / join / leave<br/>list / message"| IN
-        OUT -.->|implemented by| WSN
-        OUT -.->|implemented by| CN
+        subgraph server["Server process — aichat-server"]
+            direction TB
+
+            WS["WebSocket server (handler)<br/><i>adapters/inbound/network</i>"]
+
+            subgraph core["Core (no I/O knowledge)"]
+                direction TB
+                IN{{"ChatUseCase<br/><i>inbound port</i>"}}
+                CR["ChatRoom<br/><i>domain/services</i>"]
+                ENT["User · Channel · Message<br/><i>domain/entities</i>"]
+                OUT{{"Notifier<br/><i>outbound port</i>"}}
+                IN -.->|implemented by| CR
+                CR --> ENT
+                CR -->|emits events| OUT
+            end
+
+            WSN["WebSocketNotifier<br/><i>adapters/outbound</i>"]
+            CN["ConsoleNotifier<br/><i>adapters/outbound</i>"]
+
+            WS -->|"connect / join / leave<br/>list / message"| IN
+            OUT -.->|implemented by| WSN
+            OUT -.->|implemented by| CN
+        end
+
+        TC --> WS
+        AC --> WS
+        WSN -->|"user_joined / user_left<br/>message broadcast"| TC
+        WSN --> AC
     end
 
-    TC -->|"ws://localhost:8765<br/>JSON requests"| WS
-    AC -->|"ws://localhost:8765<br/>JSON requests"| WS
-    WSN -->|"user_joined / user_left<br/>message broadcast"| TC
-    WSN --> AC
-
-    classDef port fill:#fff6d6,stroke:#b58900
-    classDef domain fill:#e8f4ff,stroke:#2b6cb0
-    classDef adapter fill:#eafbea,stroke:#2f855a
-    classDef ext fill:#f3f0ff,stroke:#6b46c1
+    classDef port fill:#fff6d6,stroke:#b58900,color:#1f2328
+    classDef domain fill:#e8f4ff,stroke:#2b6cb0,color:#1f2328
+    classDef adapter fill:#eafbea,stroke:#2f855a,color:#1f2328
+    classDef ext fill:#f3f0ff,stroke:#6b46c1,color:#1f2328
     class IN,OUT port
     class CR,ENT domain
     class WS,WSN,CN,TC,AC adapter
     class API ext
+
+    style canvas fill:#ffffff,stroke:#ffffff,color:#1f2328
+    style clients fill:#fdf2f8,stroke:#9d4e7c,color:#1f2328
+    style server fill:#f4fbf8,stroke:#2f855a,color:#1f2328
+    style core fill:#fff9f0,stroke:#b7791f,color:#1f2328
 ```
 
 Solid arrows are calls/data flow; dashed arrows are "implements this port". The dependency direction is the point: adapters depend on ports, ports depend on the domain, and nothing in the domain depends on WebSockets, the terminal, or the Claude API. `ConsoleNotifier` is the proof — a drop-in replacement for `WebSocketNotifier` that the domain can't tell apart.
