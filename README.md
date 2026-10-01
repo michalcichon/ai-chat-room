@@ -2,6 +2,8 @@
 
 #### Video Demo: https://youtu.be/b3o2ntoesvk
 
+#### Presentation: [aiChatRoom_presentation.pdf](aiChatRoom_presentation.pdf)
+
 #### Description
 
 aiChatRoom is an IRC-inspired chat system written in Python. It lets users join channels, exchange messages, and switch between rooms using simple slash commands, all from the terminal. Under the hood it's a real client-server application over WebSocket, so multiple people (or AI agents) can be connected to the same room at once from different machines.
