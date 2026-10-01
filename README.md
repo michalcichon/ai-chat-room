@@ -34,9 +34,65 @@ aichat/
     │   ├── cli/                    # Terminal client for humans
     │   └── agent/                  # AI agent client, powered by the Claude API
     └── outbound/
-        ├── console_notifier.py     # Prints domain events to stdout (used server-side)
+        ├── console_notifier.py     # Prints domain events to stdout (drop-in alternative, for debugging)
         └── websocket_notifier.py   # Pushes domain events to connected clients over WebSocket
 ```
+
+### How it fits together at runtime
+
+Three separate processes (server, terminal client, agent client) talk over one JSON-over-WebSocket protocol. Only the server process touches the domain:
+
+```mermaid
+flowchart LR
+    subgraph clients["Client processes"]
+        direction TB
+        TC["TerminalClient<br/><i>adapters/inbound/cli</i><br/>prompt_toolkit"]
+        AC["AgentClient<br/><i>adapters/inbound/agent</i>"]
+    end
+
+    API(["Claude API<br/><i>anthropic</i>"])
+    AC <-->|"mention → always reply<br/>cooldown tick → maybe reply"| API
+
+    subgraph server["Server process — aichat-server"]
+        direction TB
+
+        WS["WebSocket server (handler)<br/><i>adapters/inbound/network</i>"]
+
+        subgraph core["Core (no I/O knowledge)"]
+            direction TB
+            IN{{"ChatUseCase<br/><i>inbound port</i>"}}
+            CR["ChatRoom<br/><i>domain/services</i>"]
+            ENT["User · Channel · Message<br/><i>domain/entities</i>"]
+            OUT{{"Notifier<br/><i>outbound port</i>"}}
+            IN -.->|implemented by| CR
+            CR --> ENT
+            CR -->|emits events| OUT
+        end
+
+        WSN["WebSocketNotifier<br/><i>adapters/outbound</i>"]
+        CN["ConsoleNotifier<br/><i>adapters/outbound</i>"]
+
+        WS -->|"connect / join / leave<br/>list / message"| IN
+        OUT -.->|implemented by| WSN
+        OUT -.->|implemented by| CN
+    end
+
+    TC -->|"ws://localhost:8765<br/>JSON requests"| WS
+    AC -->|"ws://localhost:8765<br/>JSON requests"| WS
+    WSN -->|"user_joined / user_left<br/>message broadcast"| TC
+    WSN --> AC
+
+    classDef port fill:#fff6d6,stroke:#b58900
+    classDef domain fill:#e8f4ff,stroke:#2b6cb0
+    classDef adapter fill:#eafbea,stroke:#2f855a
+    classDef ext fill:#f3f0ff,stroke:#6b46c1
+    class IN,OUT port
+    class CR,ENT domain
+    class WS,WSN,CN,TC,AC adapter
+    class API ext
+```
+
+Solid arrows are calls/data flow; dashed arrows are "implements this port". The dependency direction is the point: adapters depend on ports, ports depend on the domain, and nothing in the domain depends on WebSockets, the terminal, or the Claude API. `ConsoleNotifier` is the proof — a drop-in replacement for `WebSocketNotifier` that the domain can't tell apart.
 
 The `domain` package has no knowledge of *how* it's being used, or by whom. The server is the only process that talks to the domain directly; every client — human or AI — is just another WebSocket connection speaking the same JSON protocol. New ways of interacting with the system are added as new adapters, without touching the domain.
 
