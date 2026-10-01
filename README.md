@@ -1,6 +1,6 @@
 # aiChatRoom
 
-#### Video Demo: tbd
+#### Video Demo: https://youtu.be/b3o2ntoesvk
 
 #### Description
 
