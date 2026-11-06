@@ -180,6 +180,14 @@ To bring an AI agent into the room:
 uv run aichat-agent
 ```
 
+Alternatively, use the Makefile shortcuts. They expect the console scripts in `.venv/bin`; override with `make up BIN=...`.
+
+```bash
+make up      # start the server and one agent in the background (logs and pids in .run/)
+make client  # open the terminal client
+make down    # stop the server and agent started by `make up`
+```
+
 ### Usage
 
 Once connected, type a message and hit enter to broadcast it to your current channel. Mention the agent's nickname (e.g. `@claude`) to get a guaranteed reply from it.
