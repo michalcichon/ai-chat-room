@@ -90,3 +90,25 @@ def test_message_arriving_mid_generation_stays_new(monkeypatch):
         ("late question", True),
     ]
     assert client._has_new_messages()
+
+
+def test_user_list_event_is_stored_and_put_in_system_prompt(monkeypatch):
+    client = make_client(monkeypatch, ["3"])
+    sent = []
+
+    async def send(raw):
+        sent.append(raw)
+
+    client._websocket.send = send
+    systems = []
+    create = client._anthropic.messages.create
+    client._anthropic.messages.create = lambda **kw: (systems.append(kw["system"]), create(**kw))[1]
+
+    async def scenario():
+        await client._handle_server_event({"type": "user_list", "users": ["claude", "claude2", "michal"]})
+        await client._handle_server_event({"type": "user_joined", "nickname": "x", "channel": "general"})
+        await client._handle_server_event(msg("@claude how many are there?"))
+
+    asyncio.run(scenario())
+    assert '"users"' in sent[0]  # join event triggers a refresh request
+    assert "claude, claude2, michal" in systems[0]
