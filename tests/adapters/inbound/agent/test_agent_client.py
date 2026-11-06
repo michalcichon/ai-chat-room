@@ -112,3 +112,15 @@ def test_user_list_event_is_stored_and_put_in_system_prompt(monkeypatch):
     asyncio.run(scenario())
     assert '"users"' in sent[0]  # join event triggers a refresh request
     assert "claude, claude2, michal" in systems[0]
+
+
+def test_system_prompt_does_not_disown_a_suffixed_own_nickname(monkeypatch):
+    client = make_client(monkeypatch, ["hi"])
+    client._nickname = "claude2"
+    systems = []
+    create = client._anthropic.messages.create
+    client._anthropic.messages.create = lambda **kw: (systems.append(kw["system"]), create(**kw))[1]
+
+    asyncio.run(client._handle_server_event(msg("@claude2 hello")))
+    assert "claude2 are other participants" not in systems[0]
+    assert "Only the exact nickname claude2 is you" in systems[0]
