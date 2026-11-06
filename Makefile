@@ -16,7 +16,8 @@ up: ## start server + one agent in the background, print PIDs
 client: ## open the terminal client
 	@$(BIN)/aichat-client
 
-down: ## stop the server and all agents
-	@pkill -f 'aichat-(server|agent)' || true
-	@rm -rf $(RUN)
+down: ## stop the server and agent started by 'make up' (logs are kept)
+	@for p in agent server; do \
+		if [ -f $(RUN)/$$p.pid ]; then kill $$(cat $(RUN)/$$p.pid) 2>/dev/null || true; rm -f $(RUN)/$$p.pid; fi; \
+	done
 	@echo "stopped"
