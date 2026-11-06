@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import time
+from dataclasses import dataclass
 
 import websockets
 from anthropic import Anthropic
@@ -15,6 +16,14 @@ NO_REPLY_SENTINEL = "NO_REPLY"
 SPONTANEOUS_REPLY_COOLDOWN_SECONDS = 30
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(eq=False)
+class HistoryEntry:
+    """One chat line the agent remembers. `new` = not yet considered for a reply."""
+    sender: str
+    text: str
+    new: bool
 
 
 class AgentClient:
@@ -36,8 +45,7 @@ class AgentClient:
         self._active_channel = None
         self._websocket = None
         self._anthropic = Anthropic()
-        # Each entry: {"from", "text", "new"}. "new" = not yet considered for a reply.
-        self._history: list[dict] = []
+        self._history: list[HistoryEntry] = []
 
     async def run(self):
         if not os.environ.get("ANTHROPIC_API_KEY"):
@@ -85,7 +93,7 @@ class AgentClient:
         if data.get("type") != "message" or data["from"] == self._nickname:
             return
 
-        self._history.append({"from": data["from"], "text": data["text"], "new": True})
+        self._history.append(HistoryEntry(sender=data["from"], text=data["text"], new=True))
         self._history = self._history[-HISTORY_LIMIT:]
 
         if self._is_mentioned(data["text"]):
@@ -115,7 +123,7 @@ class AgentClient:
             await self._reply_now(channel, forced=False)
 
     def _has_new_messages(self) -> bool:
-        return any(m["new"] for m in self._history)
+        return any(m.new for m in self._history)
 
     async def _reply_now(self, channel: str, forced: bool):
         # Messages can arrive while the reply is being generated (the cooldown
@@ -133,7 +141,7 @@ class AgentClient:
         # Everything the model saw is now handled (replied to, or deliberately
         # not); without this a later spontaneous check would answer it again.
         for m in snapshot:
-            m["new"] = False
+            m.new = False
 
         if reply_text is None:
             logger.debug("decided not to reply (%s)", "mentioned" if forced else "spontaneous check")
@@ -151,18 +159,20 @@ class AgentClient:
             (i + 1 for i, m in enumerate(self._history) if m is last_seen),
             0 if last_seen is not None else len(self._history),
         )
-        self._history.insert(insert_at, {"from": self._nickname, "text": reply_text, "new": False})
+        self._history.insert(
+            insert_at, HistoryEntry(sender=self._nickname, text=reply_text, new=False)
+        )
         self._history = self._history[-HISTORY_LIMIT:]
 
-    async def _generate_reply(self, history: list[dict], forced: bool) -> str | None:
-        def fmt(messages):
-            return "\n".join(f"{m['from']}: {m['text']}" for m in messages) or "(none)"
+    async def _generate_reply(self, history: list[HistoryEntry], forced: bool) -> str | None:
+        def fmt(messages: list[HistoryEntry]) -> str:
+            return "\n".join(f"{m.sender}: {m.text}" for m in messages) or "(none)"
 
         conversation = (
             "Earlier conversation (already handled, for context only):\n"
-            f"{fmt([m for m in history if not m['new']])}\n\n"
+            f"{fmt([m for m in history if not m.new])}\n\n"
             "New messages (respond only to these):\n"
-            f"{fmt([m for m in history if m['new']])}"
+            f"{fmt([m for m in history if m.new])}"
         )
 
         if forced:
