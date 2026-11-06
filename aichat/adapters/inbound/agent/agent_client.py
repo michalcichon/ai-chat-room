@@ -36,8 +36,8 @@ class AgentClient:
         self._active_channel = None
         self._websocket = None
         self._anthropic = Anthropic()
+        # Each entry: {"from", "text", "new"}. "new" = not yet considered for a reply.
         self._history: list[dict] = []
-        self._unseen_since_last_check = False
 
     async def run(self):
         if not os.environ.get("ANTHROPIC_API_KEY"):
@@ -85,7 +85,7 @@ class AgentClient:
         if data.get("type") != "message" or data["from"] == self._nickname:
             return
 
-        self._history.append({"from": data["from"], "text": data["text"]})
+        self._history.append({"from": data["from"], "text": data["text"], "new": True})
         self._history = self._history[-HISTORY_LIMIT:]
 
         if self._is_mentioned(data["text"]):
@@ -97,7 +97,6 @@ class AgentClient:
                          data["from"])
             return
 
-        self._unseen_since_last_check = True
         logger.debug("message from %s queued for consideration at next cooldown check",
                      data["from"])
 
@@ -108,24 +107,33 @@ class AgentClient:
         while True:
             await asyncio.sleep(SPONTANEOUS_REPLY_COOLDOWN_SECONDS)
 
-            if not self._unseen_since_last_check:
+            if not self._has_new_messages():
                 logger.debug("cooldown elapsed, nothing new since last check, skipping")
                 continue
 
-            self._unseen_since_last_check = False
             channel = self._active_channel
             await self._reply_now(channel, forced=False)
 
+    def _has_new_messages(self) -> bool:
+        return any(m["new"] for m in self._history)
+
     async def _reply_now(self, channel: str, forced: bool):
         # Messages can arrive while the reply is being generated (the cooldown
-        # loop runs concurrently with the receive loop); remember the last
-        # message the model saw so the reply is recorded right after it.
-        last_seen = self._history[-1] if self._history else None
+        # loop runs concurrently with the receive loop); work on a snapshot and
+        # remember the last message the model saw so the reply is recorded
+        # right after it.
+        snapshot = list(self._history)
+        last_seen = snapshot[-1] if snapshot else None
         try:
-            reply_text = await self._generate_reply(forced=forced)
+            reply_text = await self._generate_reply(snapshot, forced=forced)
         except Exception:
             logger.exception("failed to generate reply")
             return
+
+        # Everything the model saw is now handled (replied to, or deliberately
+        # not); without this a later spontaneous check would answer it again.
+        for m in snapshot:
+            m["new"] = False
 
         if reply_text is None:
             logger.debug("decided not to reply (%s)", "mentioned" if forced else "spontaneous check")
@@ -143,11 +151,19 @@ class AgentClient:
             (i + 1 for i, m in enumerate(self._history) if m is last_seen),
             0 if last_seen is not None else len(self._history),
         )
-        self._history.insert(insert_at, {"from": self._nickname, "text": reply_text})
+        self._history.insert(insert_at, {"from": self._nickname, "text": reply_text, "new": False})
         self._history = self._history[-HISTORY_LIMIT:]
 
-    async def _generate_reply(self, forced: bool) -> str | None:
-        conversation = "\n".join(f"{m['from']}: {m['text']}" for m in self._history)
+    async def _generate_reply(self, history: list[dict], forced: bool) -> str | None:
+        def fmt(messages):
+            return "\n".join(f"{m['from']}: {m['text']}" for m in messages) or "(none)"
+
+        conversation = (
+            "Earlier conversation (already handled, for context only):\n"
+            f"{fmt([m for m in history if not m['new']])}\n\n"
+            "New messages (respond only to these):\n"
+            f"{fmt([m for m in history if m['new']])}"
+        )
 
         if forced:
             decision_rule = "You have just been directly mentioned, so you must always reply."
@@ -166,9 +182,9 @@ class AgentClient:
                 f"You are a participant in a chat room with the nickname {self._nickname}. "
                 "Reply briefly and naturally, like in a chat conversation, "
                 "not like an AI assistant. Don't reintroduce yourself. "
-                "Lines from your own nickname in the conversation are things you already said. "
-                "Answer only the latest message(s) that you haven't responded to yet; "
-                "never repeat or re-answer anything you already answered. "
+                "Lines from your own nickname are things you already said. "
+                "Answer only the new messages; never repeat or re-answer anything "
+                "from the earlier conversation. "
                 + decision_rule
             ),
             messages=[{"role": "user", "content": conversation}],

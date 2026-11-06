@@ -1,0 +1,70 @@
+import asyncio
+from types import SimpleNamespace
+
+from aichat.adapters.inbound.agent.agent_client import AgentClient
+
+
+class FakeAnthropic:
+    def __init__(self, replies):
+        self.replies, self.prompts = list(replies), []
+        self.messages = SimpleNamespace(create=self._create)
+
+    def _create(self, **kw):
+        self.prompts.append(kw["messages"][0]["content"])
+        return SimpleNamespace(content=[SimpleNamespace(text=self.replies.pop(0))])
+
+
+class FakeWebSocket:
+    async def send(self, _):
+        pass
+
+
+def make_client(monkeypatch, replies):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test")
+    client = AgentClient("ws://x")
+    client._anthropic = FakeAnthropic(replies)
+    client._websocket = FakeWebSocket()
+    client._active_channel = "general"
+    return client
+
+
+def msg(text):
+    return {"type": "message", "channel": "general", "from": "michal", "text": text}
+
+
+def test_mention_reply_marks_earlier_unmentioned_messages_handled(monkeypatch):
+    client = make_client(monkeypatch, ["4, and life is philosophical"])
+
+    async def scenario():
+        await client._handle_server_event(msg("what's the meaning of life?"))
+        assert client._has_new_messages()
+        await client._handle_server_event(msg("@claude what is 2+2?"))
+
+    asyncio.run(scenario())
+    # the cooldown loop would skip: nothing left to answer
+    assert not client._has_new_messages()
+
+
+def test_second_prompt_separates_handled_from_new(monkeypatch):
+    client = make_client(monkeypatch, ["4", "green"])
+
+    async def scenario():
+        await client._handle_server_event(msg("@claude what is 2+2?"))
+        await client._handle_server_event(msg("@claude blue + yellow?"))
+
+    asyncio.run(scenario())
+    first, second = client._anthropic.prompts
+    earlier, new = second.split("New messages (respond only to these):")
+    assert "what is 2+2?" in earlier and "claude: 4" in earlier
+    assert "blue + yellow?" in new and "2+2" not in new
+
+
+def test_no_reply_still_marks_messages_handled(monkeypatch):
+    client = make_client(monkeypatch, ["NO_REPLY"])
+
+    async def scenario():
+        await client._handle_server_event(msg("hey"))
+        await client._reply_now("general", forced=False)
+
+    asyncio.run(scenario())
+    assert not client._has_new_messages()
