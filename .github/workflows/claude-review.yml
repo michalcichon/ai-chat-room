@@ -7,7 +7,7 @@ on:
 # Fork PRs get no secrets and a read-only token, so only run for same-repo PRs.
 jobs:
   review:
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'github-actions[bot]'
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.event.sender.type != 'Bot'
     runs-on: ubuntu-latest
     permissions:
       contents: write        # push fix commits to the PR branch
