@@ -117,6 +117,10 @@ class AgentClient:
             await self._reply_now(channel, forced=False)
 
     async def _reply_now(self, channel: str, forced: bool):
+        # Messages can arrive while the reply is being generated (the cooldown
+        # loop runs concurrently with the receive loop); remember the last
+        # message the model saw so the reply is recorded right after it.
+        last_seen = self._history[-1] if self._history else None
         try:
             reply_text = await self._generate_reply(forced=forced)
         except Exception:
@@ -133,7 +137,13 @@ class AgentClient:
         }))
         # The server's echo of our own message is ignored in _handle_server_event,
         # so record it here; otherwise earlier questions look unanswered.
-        self._history.append({"from": self._nickname, "text": reply_text})
+        # Insert it after the last message the model saw, not at the end, so
+        # messages that arrived mid-generation still look unanswered.
+        insert_at = next(
+            (i + 1 for i, m in enumerate(self._history) if m is last_seen),
+            0 if last_seen is not None else len(self._history),
+        )
+        self._history.insert(insert_at, {"from": self._nickname, "text": reply_text})
         self._history = self._history[-HISTORY_LIMIT:]
 
     async def _generate_reply(self, forced: bool) -> str | None:
