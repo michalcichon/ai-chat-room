@@ -95,7 +95,7 @@ flowchart LR
             WSN["WebSocketNotifier<br/><i>adapters/outbound</i>"]
             CN["ConsoleNotifier<br/><i>adapters/outbound</i>"]
 
-            WS -->|"connect / join / leave<br/>list / message"| IN
+            WS -->|"connect / join / leave<br/>list / users / message"| IN
             OUT -.->|implemented by| WSN
             OUT -.->|implemented by| CN
         end
@@ -199,6 +199,7 @@ Available commands:
 | `/join <channel>` | Join (or switch to) a channel       |
 | `/leave`          | Leave your current active channel   |
 | `/list`           | List all known channels             |
+| `/users`          | List users who are online           |
 | `/help`           | Show available commands             |
 | `/quit`           | Disconnect and exit                 |
 | `Ctrl+C`          | Disconnect and exit                 |
