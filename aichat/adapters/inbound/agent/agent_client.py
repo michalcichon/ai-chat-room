@@ -46,6 +46,7 @@ class AgentClient:
         self._websocket = None
         self._anthropic = Anthropic()
         self._history: list[HistoryEntry] = []
+        self._users: list[str] = []
 
     async def run(self):
         if not os.environ.get("ANTHROPIC_API_KEY"):
@@ -85,11 +86,23 @@ class AgentClient:
             raise RuntimeError(f"Failed to connect: {reply['message']}")
         self._nickname = reply["nickname"]
         self._active_channel = reply["default_channel"]
+        await self._request_users()
+
+    async def _request_users(self):
+        # Fire-and-forget: the user_list reply is handled by the receive loop
+        # (awaiting it here would deadlock when called from inside that loop).
+        await self._websocket.send(json.dumps({"type": "users"}))
 
     def _is_mentioned(self, text: str) -> bool:
         return re.search(rf"@{re.escape(self._nickname)}\b", text) is not None
 
     async def _handle_server_event(self, data: dict):
+        if data.get("type") == "user_list":
+            self._users = data["users"]
+            return
+        if data.get("type") in ("user_joined", "user_left"):
+            await self._request_users()
+            return
         if data.get("type") != "message" or data["from"] == self._nickname:
             return
 
@@ -192,6 +205,9 @@ class AgentClient:
                 f"You are a participant in a chat room with the nickname {self._nickname}. "
                 "Reply briefly and naturally, like in a chat conversation, "
                 "not like an AI assistant. Don't reintroduce yourself. "
+                f"Users currently online: {', '.join(self._users) or 'unknown'}. "
+                f"Only the exact nickname {self._nickname} is you; similar names "
+                "(e.g. with a number suffix) are other participants. "
                 "Lines from your own nickname are things you already said. "
                 "Answer only the new messages; never repeat or re-answer anything "
                 "from the earlier conversation. "

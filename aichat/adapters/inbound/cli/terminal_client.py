@@ -11,6 +11,7 @@ Available commands:
 /join <channel>   - join a channel and make it your active channel
 /leave            - leave your current active channel
 /list             - list all known channels
+/users            - list users who are online
 /help             - show this message
 /quit             - exit the chat
 """
@@ -23,6 +24,7 @@ class TerminalClient:
         self._nickname = None
         self._active_channel = None
         self._list_response: asyncio.Future | None = None
+        self._users_response: asyncio.Future | None = None
         self._session = PromptSession()
 
     async def run(self):
@@ -77,6 +79,11 @@ class TerminalClient:
                 self._list_response.set_result(data["channels"])
             return
 
+        if data.get("type") == "user_list":
+            if self._users_response is not None and not self._users_response.done():
+                self._users_response.set_result(data["users"])
+            return
+
         if data["type"] == "user_joined":
             print(f"* {data['nickname']} joined #{data['channel']}")
         elif data["type"] == "user_left":
@@ -94,6 +101,8 @@ class TerminalClient:
             print(AVAILABLE_COMMANDS)
         elif prompt == "/list":
             await self._list_channels()
+        elif prompt == "/users":
+            await self._list_users()
         elif prompt.startswith("/join "):
             channel = prompt.removeprefix("/join ")
             await self._websocket.send(json.dumps({"type": "join", "channel": channel}))
@@ -110,6 +119,12 @@ class TerminalClient:
         await self._websocket.send(json.dumps({"type": "list"}))
         channels = await self._list_response
         print("Channels: " + ", ".join(channels))
+
+    async def _list_users(self):
+        self._users_response = asyncio.get_event_loop().create_future()
+        await self._websocket.send(json.dumps({"type": "users"}))
+        users = await self._users_response
+        print("Users: " + ", ".join(users))
 
     async def _post_message(self, text: str):
         await self._websocket.send(json.dumps({

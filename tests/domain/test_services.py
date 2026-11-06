@@ -120,3 +120,10 @@ def test_agent_and_human_nickname_uniqueness_still_applies(room):
 
 def test_default_channel_property(room):
     assert room.default_channel == ChatRoom.DEFAULT_CHANNEL
+
+def test_list_users_returns_connected_nicknames_and_drops_disconnected(room):
+    alice = room.connect("alice")
+    room.connect("bob")
+    assert room.list_users() == ["alice", "bob"]
+    room.disconnect(alice)
+    assert room.list_users() == ["bob"]

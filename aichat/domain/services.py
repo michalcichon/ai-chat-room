@@ -64,6 +64,9 @@ class ChatRoom:
     def list_channels(self) -> list[str]:
         return list(self._channels.keys())
 
+    def list_users(self) -> list[str]:
+        return sorted(self._nicknames)
+
     def _resolve_unique_nickname(self, requested: str) -> str:
         if requested not in self._nicknames:
             return requested
