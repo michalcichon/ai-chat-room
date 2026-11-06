@@ -68,3 +68,25 @@ def test_no_reply_still_marks_messages_handled(monkeypatch):
 
     asyncio.run(scenario())
     assert not client._has_new_messages()
+
+
+def test_message_arriving_mid_generation_stays_new(monkeypatch):
+    client = make_client(monkeypatch, [])
+
+    async def generate_while_message_arrives(history, forced):
+        await client._handle_server_event(msg("late question"))
+        return "early answer"
+
+    client._generate_reply = generate_while_message_arrives
+
+    async def scenario():
+        await client._handle_server_event(msg("early question"))
+        await client._reply_now("general", forced=False)
+
+    asyncio.run(scenario())
+    assert [(m.text, m.new) for m in client._history] == [
+        ("early question", False),
+        ("early answer", False),
+        ("late question", True),
+    ]
+    assert client._has_new_messages()
