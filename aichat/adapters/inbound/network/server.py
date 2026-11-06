@@ -49,6 +49,12 @@ async def handler(websocket) -> None:
                     "channels": channels,
                 }))
 
+            elif msg_type == "users":
+                await websocket.send(json.dumps({
+                    "type": "user_list",
+                    "users": chat_room.list_users(),
+                }))
+
             elif msg_type == "message":
                 try:
                     chat_room.post_message(user, data["channel"], data["text"])
