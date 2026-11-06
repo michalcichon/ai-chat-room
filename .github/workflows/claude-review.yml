@@ -1,0 +1,32 @@
+name: Claude code review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Fork PRs get no secrets and a read-only token, so only run for same-repo PRs.
+jobs:
+  review:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # push fix commits to the PR branch
+      pull-requests: write   # post review comments
+      id-token: write
+    concurrency:
+      group: claude-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Use the python-code-review skill on PR #${{ github.event.pull_request.number }}
+            in apply mode: fix the Must fix / Should fix findings, commit and push to the PR
+            branch, and post the remaining findings and the verdict as a PR comment.
+          claude_args: |
+            --allowedTools "Edit,Read,Write,Bash(git:*),Bash(pytest:*),Bash(uv:*),Bash(gh pr comment:*),Bash(gh pr diff:*)"
