@@ -117,6 +117,10 @@ class AgentClient:
             await self._reply_now(channel, forced=False)
 
     async def _reply_now(self, channel: str, forced: bool):
+        # Messages can arrive while the reply is being generated (the cooldown
+        # loop runs concurrently with the receive loop); remember the last
+        # message the model saw so the reply is recorded right after it.
+        last_seen = self._history[-1] if self._history else None
         try:
             reply_text = await self._generate_reply(forced=forced)
         except Exception:
@@ -131,6 +135,16 @@ class AgentClient:
         await self._websocket.send(json.dumps({
             "type": "message", "channel": channel, "text": reply_text,
         }))
+        # The server's echo of our own message is ignored in _handle_server_event,
+        # so record it here; otherwise earlier questions look unanswered.
+        # Insert it after the last message the model saw, not at the end, so
+        # messages that arrived mid-generation still look unanswered.
+        insert_at = next(
+            (i + 1 for i, m in enumerate(self._history) if m is last_seen),
+            0 if last_seen is not None else len(self._history),
+        )
+        self._history.insert(insert_at, {"from": self._nickname, "text": reply_text})
+        self._history = self._history[-HISTORY_LIMIT:]
 
     async def _generate_reply(self, forced: bool) -> str | None:
         conversation = "\n".join(f"{m['from']}: {m['text']}" for m in self._history)
@@ -152,6 +166,9 @@ class AgentClient:
                 f"You are a participant in a chat room with the nickname {self._nickname}. "
                 "Reply briefly and naturally, like in a chat conversation, "
                 "not like an AI assistant. Don't reintroduce yourself. "
+                "Lines from your own nickname in the conversation are things you already said. "
+                "Answer only the latest message(s) that you haven't responded to yet; "
+                "never repeat or re-answer anything you already answered. "
                 + decision_rule
             ),
             messages=[{"role": "user", "content": conversation}],
